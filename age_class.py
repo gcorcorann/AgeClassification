@@ -222,41 +222,67 @@ def location_phase(img):
 	@return	nothing
 	"""
 	# keep original image for displaying
-	img_disp = img.copy()
 	height, width = img.shape
 	# find eyes
 	sobel_thres = 100
-	eye_pos, left_eye, right_eye = locate_eyes(img_disp, width, height,
+	eye_pos, left_eye, right_eye = locate_eyes(img, width, height,
 		sobel_thres)
 	# find nose and mouth
 	nose_pos, mouth_pos, mouth_area = locate_nose_mouth(img, left_eye,
-		right_eye, 90)
+	right_eye, 90)
+	return eye_pos, left_eye, right_eye, nose_pos, mouth_pos, mouth_area
 
-	# draw center line
-	cl = width // 2
-	cv2.line(img_disp, (cl,0), (cl,height), (0,0,0), 2)
-	# draw eye position
-	cv2.line(img_disp, (0,eye_pos), (width,eye_pos), (0,0,0), 2)
-	# draw eye areas
-	cv2.rectangle(img_disp, (left_eye[0],left_eye[1]),
-		(left_eye[0]+left_eye[2],left_eye[1]+left_eye[3]), (0,0,0), 2)
-	cv2.rectangle(img_disp, (right_eye[0],right_eye[1]),
-		(right_eye[0]+right_eye[2],right_eye[1]+right_eye[3]), (0,0,0), 2)
-	# draw nose position
-	cv2.line(img_disp, (0,nose_pos), (width,nose_pos), (0,0,0), 2)
-	# draw mouth position
-	cv2.line(img_disp, (0,mouth_pos), (width,mouth_pos), (0,0,0), 2)
-	# draw mouth area
-	cv2.rectangle(img_disp, (mouth_area[0],mouth_area[1]),
-		(mouth_area[0]+mouth_area[2],mouth_area[1]+mouth_area[3]), (0,0,0), 2)
-	# display eyes
+""" Feature Extraction """
+def feature_extraction(img, eye_pos, left_eye, right_eye, nose_pos, mouth_pos, mouth_area):
+	""" Extract wrinkle and geometric features from input image.
+	"""
+	height, width = img.shape
+	# define forehead region
+	lb = mouth_area[0]
+	rb = mouth_area[0] + mouth_area[2]
+	bb = eye_pos - max(left_eye[3], right_eye[3]) 
+	tb = bb - max(mouth_area[0]-left_eye[0],
+		right_eye[1]+right_eye[2]-mouth_area[0]-mouth_area[2])
+	forehead = [lb, tb, rb-lb, bb-tb]
+	# define left eye corner
+	lb = left_eye[0] - max(left_eye[2], right_eye[2])//4
+	rb = left_eye[0]
+	tb = left_eye[1]
+	bb = left_eye[1] + left_eye[3]
+	left_c = [lb, tb, rb-lb, bb-tb]
+	# define right eye corner
+	lb = right_eye[0] + right_eye[2]
+	rb = lb + max(left_eye[2], right_eye[2])//4
+	tb = right_eye[1]
+	bb = right_eye[1] + right_eye[3]
+	right_c = [lb, tb, rb-lb, bb-tb]
+	# define left cheek region
+	lb = left_c[0] + left_c[2]
+	rb = lb + (mouth_area[0] - left_eye[0])
+	tb = eye_pos + min(left_eye[3], right_eye[3])//4
+	bb = mouth_area[1]
+	cheek_left = [lb, tb, rb-lb, bb-tb]
+	# define right cheek region
+	rb = right_c[0]
+	lb = rb - (right_eye[0]+right_eye[2]-mouth_area[0]-mouth_area[2])
+	tb = eye_pos + min(left_eye[3], right_eye[3])//4
+	bb = mouth_area[1]
+	cheek_right = [lb, tb, rb-lb, bb-tb]
+
+	# draw forehead region
+	cv2.rectangle(img, (forehead[0],forehead[1]),
+		(forehead[0]+forehead[2],forehead[1]+forehead[3]), (0,0,0), 2)
+	cv2.rectangle(img, (left_c[0],left_c[1]),
+		(left_c[0]+left_c[2],left_c[1]+left_c[3]), (0,0,0), 2)
+	cv2.rectangle(img, (right_c[0],right_c[1]),
+		(right_c[0]+right_c[2],right_c[1]+right_c[3]), (0,0,0), 2)
+	cv2.rectangle(img, (cheek_left[0],cheek_left[1]),
+		(cheek_left[0]+cheek_left[2],cheek_left[1]+cheek_left[3]), (0,0,0), 2)
+	cv2.rectangle(img, (cheek_right[0],cheek_right[1]),
+		(cheek_right[0]+cheek_right[2],cheek_right[1]+cheek_right[3]), (0,0,0), 2)
 	plt.figure()
-	plt.subplot(121), plt.imshow(img, cmap='gray')
-	plt.title('Input Image')
-	plt.subplot(122), plt.imshow(img_disp, cmap='gray')
-	plt.title('Display Image')
-	plt.show()
-
+	plt.subplot(122), plt.imshow(img, cmap='gray')
+	plt.title('Feature Extraction')
 
 def main():
 	import sys
@@ -265,12 +291,38 @@ def main():
 		img = cv2.imread(sys.argv[1], cv2.IMREAD_GRAYSCALE)
 	else:
 		# read default image
-		img = cv2.imread('img1.png', cv2.IMREAD_GRAYSCALE)
-
+		img = cv2.imread('images/img1.png', cv2.IMREAD_GRAYSCALE)
 	img = cv2.resize(img, (380,480))
 	img = dynamic_range(img)
-	location_phase(img)
+	# create a copy for processing
+	img_copy = img.copy()
+	height, width = img.shape
+	# find locations
+	eye_pos, left_eye, right_eye, nose_pos, mouth_pos, mouth_area = location_phase(img_copy)
+	feature_extraction(img_copy, eye_pos, left_eye, right_eye, nose_pos, 
+		mouth_pos, mouth_area)
 
+	# draw center line
+	cl = width // 2
+	cv2.line(img, (cl,0), (cl,height), (0,0,0), 2)
+	# draw eye position
+	cv2.line(img, (0,eye_pos), (width,eye_pos), (0,0,0), 2)
+	# draw eye areas
+	cv2.rectangle(img, (left_eye[0],left_eye[1]),
+		(left_eye[0]+left_eye[2],left_eye[1]+left_eye[3]), (0,0,0), 2)
+	cv2.rectangle(img, (right_eye[0],right_eye[1]),
+		(right_eye[0]+right_eye[2],right_eye[1]+right_eye[3]), (0,0,0), 2)
+	# draw nose position
+	cv2.line(img, (0,nose_pos), (width,nose_pos), (0,0,0), 2)
+	# draw mouth position
+	cv2.line(img, (0,mouth_pos), (width,mouth_pos), (0,0,0), 2)
+	# draw mouth area
+	cv2.rectangle(img, (mouth_area[0],mouth_area[1]),
+		(mouth_area[0]+mouth_area[2],mouth_area[1]+mouth_area[3]), (0,0,0), 2)
+	# display eyes
+	plt.subplot(121), plt.imshow(img, cmap='gray')
+	plt.title('Display Image')
+	plt.show()
 
 if __name__ == "__main__":
 	# execute only if run as a script
