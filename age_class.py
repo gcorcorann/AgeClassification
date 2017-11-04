@@ -54,7 +54,16 @@ def convolve_1D(vector, kernel):
 		vector_filt[i] = total
 	return vector_filt
 
+""" Find Zero Crossings """
 def find_zero_crossings(vector):
+	"""
+	Find zero crossings in 1D data.
+
+	@param	vector:	1D data to find zero-crossings
+
+	@return	mouth_pos:	location of mouth in original image
+	@return	nose_pos:	location of nose in original image
+	"""
 	val = []
 	pos = []
 	# finite difference
@@ -119,7 +128,7 @@ def locate_eyes(img, width, height, sobel_thres):
 	@return	right_eye:	bounding box of right eye
 	"""
 	# eye ROI
-	roi = img[height//3:3*height//5, width//8:7*width//8].copy()
+	roi = img[height//3:3*height//5, width//4:3*width//4].copy()
 	# apply Sobel operator
 	I_edge = apply_sobel(roi, 3, sobel_thres)
 	# find position of eyes
@@ -127,29 +136,41 @@ def locate_eyes(img, width, height, sobel_thres):
 	# find area of eyes
 	labels, stats = connected_components(np.uint8(I_edge))
 	# threshold components
-	best_left = 0
-	best_right = 0
+	best_left = np.inf
+	best_right = np.inf
 	for i in range(1, len(stats)):
 		row = stats[i]
-		if (row[4] >= 100):
+		if (row[4] >= 130):
 			c_x = row[0] + row[2]//2
+			c_y = row[1] + row[3]//2
+			# find distance from eye position
+			d = abs(eye_pos - (c_y+height//3))
 			# left eye
-			if (c_x <= labels.shape[1]//2 and row[4] >= best_left):
+			if (c_x <= labels.shape[1]//2 and d < best_left):
 				left_eye = row[0:4]
-				best_left = row[4]
-			elif (c_x >= labels.shape[1]//2 and row[4] >= best_right):
+				best_left = d
+			elif (c_x >= labels.shape[1]//2 and d < best_right):
 				right_eye = row[0:4]
-				best_right = row[4]
+				best_right = d
 	# offset compared to original image
 	eye_pos += height//3
-	left_eye[0] += width//8
+	left_eye[0] += width//4
 	left_eye[1] += height//3
-	right_eye[0] += width//8
+	right_eye[0] += width//4
 	right_eye[1] += height//3
 	# find eye positions
 	return eye_pos, left_eye, right_eye 
 
+""" Connected Components """
 def connected_components(img_thres):
+	"""
+	Find connected components along with statistics.
+
+	@param	img_thres:	input binary image
+
+	@return	labels:	labeled connected components
+	@return	stats:	statistics on each connected component
+	"""
 	# morphological closing
 	se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
 	img_close = cv2.morphologyEx(img_thres, cv2.MORPH_CLOSE, se)
@@ -157,7 +178,19 @@ def connected_components(img_thres):
 	_, labels, stats, _ = cv2.connectedComponentsWithStats(img_close, 8)
 	return labels, stats
 
+""" Locate Nose Mouth """
 def locate_nose_mouth(img, left_eye, right_eye, sobel_thres):
+	"""
+	Find position of the nose and mouth in original image.
+
+	@param	img:	input image
+	@param	left_eye:	position of left eye in original image
+	@param	right_eye:	position of right eye in original image
+	@param	sobel_thres:	threshold for creating binary edge image
+
+	@return	nose_pos:	location of nose in original image
+	@return	mouth_pos:	location of mouth in original image
+	"""
 	# find nose+mouse region of interest
 	d_eyes = right_eye[0]+right_eye[2] - left_eye[0]
 	top_bound = max(left_eye[1]+left_eye[3], right_eye[1]+right_eye[3])
@@ -179,7 +212,15 @@ def locate_nose_mouth(img, left_eye, right_eye, sobel_thres):
 	mouth_area[1] += top_bound
 	return nose_pos, mouth_pos, mouth_area
 
+""" Location Phase """
 def location_phase(img):
+	"""
+	Find location of eyes, nose, and mouth.
+
+	@param	img:	input image
+
+	@return	nothing
+	"""
 	# keep original image for displaying
 	img_disp = img.copy()
 	height, width = img.shape
@@ -187,11 +228,20 @@ def location_phase(img):
 	sobel_thres = 100
 	eye_pos, left_eye, right_eye = locate_eyes(img_disp, width, height,
 		sobel_thres)
-
 	# find nose and mouth
 	nose_pos, mouth_pos, mouth_area = locate_nose_mouth(img, left_eye,
 		right_eye, 90)
-	
+
+	# draw center line
+	cl = width // 2
+	cv2.line(img_disp, (cl,0), (cl,height), (0,0,0), 2)
+	# draw eye position
+	cv2.line(img_disp, (0,eye_pos), (width,eye_pos), (0,0,0), 2)
+	# draw eye areas
+	cv2.rectangle(img_disp, (left_eye[0],left_eye[1]),
+		(left_eye[0]+left_eye[2],left_eye[1]+left_eye[3]), (0,0,0), 2)
+	cv2.rectangle(img_disp, (right_eye[0],right_eye[1]),
+		(right_eye[0]+right_eye[2],right_eye[1]+right_eye[3]), (0,0,0), 2)
 	# draw nose position
 	cv2.line(img_disp, (0,nose_pos), (width,nose_pos), (0,0,0), 2)
 	# draw mouth position
@@ -199,16 +249,6 @@ def location_phase(img):
 	# draw mouth area
 	cv2.rectangle(img_disp, (mouth_area[0],mouth_area[1]),
 		(mouth_area[0]+mouth_area[2],mouth_area[1]+mouth_area[3]), (0,0,0), 2)
-
-	# draw center line
-	cl = width // 2
-	cv2.line(img_disp, (cl,0), (cl,height), (0,0,0), 2)
-	# draw eye positions
-	cv2.line(img_disp, (0,eye_pos), (width,eye_pos), (0,0,0), 2)
-	cv2.rectangle(img_disp, (left_eye[0],left_eye[1]),
-		(left_eye[0]+left_eye[2],left_eye[1]+left_eye[3]), (0,0,0), 2)
-	cv2.rectangle(img_disp, (right_eye[0],right_eye[1]),
-		(right_eye[0]+right_eye[2],right_eye[1]+right_eye[3]), (0,0,0), 2)
 	# display eyes
 	plt.figure()
 	plt.subplot(121), plt.imshow(img, cmap='gray')
@@ -218,10 +258,21 @@ def location_phase(img):
 	plt.show()
 
 
+def main():
+	import sys
+	if len(sys.argv) >= 2:
+		# read image from command line
+		img = cv2.imread(sys.argv[1], cv2.IMREAD_GRAYSCALE)
+	else:
+		# read default image
+		img = cv2.imread('img1.png', cv2.IMREAD_GRAYSCALE)
 
-# read image
-img = cv2.imread('img1.png', cv2.IMREAD_GRAYSCALE)
-img = cv2.resize(img, (380,480))
+	img = cv2.resize(img, (380,480))
+	img = dynamic_range(img)
+	location_phase(img)
 
-img = dynamic_range(img)
-location_phase(img)
+
+if __name__ == "__main__":
+	# execute only if run as a script
+	main()
+
