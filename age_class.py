@@ -265,7 +265,7 @@ def wrinkle_depth(img_roi, wrinkle_thres):
     """
     W_A = img_roi[img_roi >= wrinkle_thres]
     M = np.sum(W_A)
-    return M / (255*W_A) 
+    return M / (255*len(W_A)) 
 
 """ Skin Variance """
 def skin_variance(img_roi):
@@ -279,11 +279,23 @@ def skin_variance(img_roi):
     P = img_roi.shape[0] * img_roi.shape[1]
     return M / (255*P)
 
-""" Feature Extraction """
-def feature_extraction(img, eye_pos, left_eye, right_eye, nose_pos,
-    mouth_pos, mouth_area, wrinkle_thres):
-    """ Extract wrinkle and geometric features from input image.
+""" Extract Wrinkes """
+def extract_wrinkles(img, eye_pos, left_eye, right_eye, nose_pos, mouth_pos,
+    mouth_area, wrinkle_thres):
+    """ Extract wrinkle features from input image.
+
+    @param  img:    original input image
+    
+    @return dictionary features D1, D2, and V corresponding to each of the 5
+            wrinkle regions (forehead, left eye corner, right eye corner, left
+            cheek, and right cheek)  
     """
+    # define feature dictionaries
+    forehead = {}
+    left_eye_corner = {}
+    right_eye_corner = {}
+    left_cheek = {}
+    right_cheek = {}
     height, width = img.shape
     # find wrinkle image
     img_wrinkle = apply_sobel(img, 3)
@@ -294,77 +306,105 @@ def feature_extraction(img, eye_pos, left_eye, right_eye, nose_pos,
     bb = eye_pos - max(left_eye[3], right_eye[3]) 
     tb = bb - max(mouth_area[0]-left_eye[0], 
             right_eye[1]+right_eye[2]-mouth_area[0]-mouth_area[2])
-    forehead = [lb, tb, rb-lb, bb-tb]
-    # find forehead wrinkle density
     roi = img_wrinkle[tb:bb, lb:rb]
-    D1_forehead = wrinkle_density(roi, wrinkle_thres)
-    D2_forehead = wrinkle_depth(roi, wrinkle_thres)
-    V_forehead = skin_variance(roi)
+    # find forehead wrinkle density
+    forehead['D1'] = wrinkle_density(roi, wrinkle_thres)
+    forehead['D2'] = wrinkle_depth(roi, wrinkle_thres)
+    forehead['V'] = skin_variance(roi)
 
     # define left eye corner
     lb = left_eye[0] - max(left_eye[2], right_eye[2])//4
     rb = left_eye[0]
     tb = left_eye[1]
     bb = left_eye[1] + left_eye[3]
-    left_c = [lb, tb, rb-lb, bb-tb]
-    # find left eye corner wrinkle density
     roi = img_wrinkle[tb:bb, lb:rb]
-    D1_left_corner = wrinkle_density(roi, wrinkle_thres)
-    D2_left_corner = wrinkle_depth(roi, wrinkle_thres)
-    V_left_corner = skin_variance(roi)
+    # find left eye corner wrinkle density
+    left_eye_corner['D1'] = wrinkle_density(roi, wrinkle_thres)
+    left_eye_corner['D2'] = wrinkle_depth(roi, wrinkle_thres)
+    left_eye_corner['V'] = skin_variance(roi)
 
     # define right eye corner
     lb = right_eye[0] + right_eye[2]
     rb = lb + max(left_eye[2], right_eye[2])//4
     tb = right_eye[1]
     bb = right_eye[1] + right_eye[3]
-    right_c = [lb, tb, rb-lb, bb-tb]
-    # find right eye corner wrinkle density
     roi = img_wrinkle[tb:bb, lb:rb]
-    D1_right_corner = wrinkle_density(roi, wrinkle_thres)
-    D2_right_corner = wrinkle_depth(roi, wrinkle_thres)
-    V_right_corner = skin_variance(roi)
+    # find right eye corner wrinkle density
+    right_eye_corner['D1'] = wrinkle_density(roi, wrinkle_thres)
+    right_eye_corner['D2'] = wrinkle_depth(roi, wrinkle_thres)
+    right_eye_corner['V'] = skin_variance(roi)
 
     # define left cheek region
-    lb = left_c[0] + left_c[2]
+    lb = left_eye[0]
     rb = lb + (mouth_area[0] - left_eye[0])
     tb = eye_pos + min(left_eye[3], right_eye[3])//4
     bb = mouth_area[1]
-    cheek_left = [lb, tb, rb-lb, bb-tb]
-    # find left cheek wrinkle density
     roi = img_wrinkle[tb:bb, lb:rb]
-    D1_left_cheeck = wrinkle_density(roi, wrinkle_thres)
-    D2_left_cheek = wrinkle_depth(roi, wrinkle_thres)
-    V_left_cheek = skin_variance(roi)
+    # find left cheek wrinkle density
+    left_cheek['D1'] = wrinkle_density(roi, wrinkle_thres)
+    left_cheek['D2'] = wrinkle_depth(roi, wrinkle_thres)
+    left_cheek['V'] = skin_variance(roi)
 
     # define right cheek region
-    rb = right_c[0]
+    rb = right_eye[0] + right_eye[2]
     lb = rb - (right_eye[0]+right_eye[2]-mouth_area[0]-mouth_area[2])
     tb = eye_pos + min(left_eye[3], right_eye[3])//4
     bb = mouth_area[1]
-    cheek_right = [lb, tb, rb-lb, bb-tb]
-    # find right cheek wrinkle density
     roi = img_wrinkle[tb:bb, lb:rb]
-    D1_right_cheek = wrinkle_density(roi, wrinkle_thres)
-    D2_right_cheek = wrinkle_depth(roi, wrinkle_thres)
-    V_right_cheek = skin_variance(roi)
+    # find right cheek wrinkle density
+    right_cheek['D1'] = wrinkle_density(roi, wrinkle_thres)
+    right_cheek['D2'] = wrinkle_depth(roi, wrinkle_thres)
+    right_cheek['V'] = skin_variance(roi)
+    return forehead, left_eye_corner, right_eye_corner, left_cheek, right_cheek
 
-    # draw forehead region
-    cv2.rectangle(img, (forehead[0],forehead[1]), (forehead[0]+forehead[2],
-        forehead[1]+forehead[3]), (0,0,0), 2)
-    cv2.rectangle(img, (left_c[0],left_c[1]), (left_c[0]+left_c[2],
-        left_c[1]+left_c[3]), (0,0,0), 2)
-    cv2.rectangle(img, (right_c[0],right_c[1]), (right_c[0]+right_c[2],
-        right_c[1]+right_c[3]), (0,0,0), 2)
-    cv2.rectangle(img, (cheek_left[0],cheek_left[1]), 
-        (cheek_left[0]+cheek_left[2],
-        cheek_left[1]+cheek_left[3]), (0,0,0), 2)
-    cv2.rectangle(img, (cheek_right[0],cheek_right[1]), 
-        (cheek_right[0]+cheek_right[2],cheek_right[1]+cheek_right[3]), 
-        (0,0,0), 2)
-    #plt.figure()
-    #plt.subplot(122), plt.imshow(img, cmap='gray')
-    #plt.title('Feature Extraction')
+""" Extract Geometric """
+def extract_geometric(img, eye_pos, left_eye, right_eye, nose_pos, mouth_pos,
+        mouth_area):
+    """
+    @param  img:    input image
+    @param  eye_pos:    position of eyes' center
+    @param  left_eye:   bounding box of left eye in original image
+    @param  right_eye:  bounding box of right eye in original image
+    @param  nose_pos:   position of nose
+    @param  mouth_pos:  position of mouth
+    @param  mouth_area: bounding box of mouth
+
+    @return R_em:   first geometric feature
+    @return R_enm:  second geometric feature
+    """
+    # first geometric feature
+    D_em = mouth_pos - eye_pos
+    D_ee = (right_eye[0]+right_eye[2]//2) - (left_eye[0]+left_eye[2]//2)
+    R_em = D_em / D_ee
+    # second geometric feature
+    D_en = nose_pos - eye_pos
+    D_nm = mouth_pos - nose_pos
+    R_enm = D_en / D_nm
+    return R_em, R_enm
+
+""" Feature Extraction """
+def feature_extraction(img, eye_pos, left_eye, right_eye, nose_pos,
+        mouth_pos, mouth_area, wrinkle_thres):
+    """ Extract wrinkle and geometric features from input image.
+    
+    @param  img:    input image
+    @param  eye_pos:    position of eyes' center
+    @param  left_eye:   bounding box of left eye in original image
+    @param  right_eye:  bounding box of right eye in original image
+    @param  nose_pos:   position of nose
+    @param  mouth_pos:  position of mouth
+    @param  mouth_area: bounding box of mouth
+    @param  wrinkle_thres:  threshold to consider a pixel a wrinkle
+
+    @return wrinkles:   list of dictionaries storing wrinkle features for
+            forehead, left/right eye corner, left/right cheek
+    @return R_em, R_enm:    geometric features
+    """
+    wrinkles = extract_wrinkles(img, eye_pos, left_eye, right_eye, nose_pos, 
+            mouth_pos, mouth_area, wrinkle_thres)
+    R_em, R_enm  = extract_geometric(img, eye_pos, left_eye, right_eye, 
+            nose_pos, mouth_pos, mouth_area)
+    return wrinkles, R_em, R_enm
 
 def main():
     import sys
@@ -383,8 +423,9 @@ def main():
     # find locations
     eye_pos, left_eye, right_eye, nose_pos, mouth_pos, \
         mouth_area = location_phase(img_copy, 130)
-    feature_extraction(img_copy, eye_pos, left_eye, right_eye, nose_pos, 
-                        mouth_pos, mouth_area, 40)
+    feats = feature_extraction(img_copy, eye_pos, left_eye, right_eye,
+                nose_pos, mouth_pos, mouth_area, 40)
+    print(feats)
 
     # draw center line
     cl = width // 2
@@ -392,14 +433,17 @@ def main():
     # draw eye position
     cv2.line(img, (0,eye_pos), (width,eye_pos), (0,0,0), 2)
     # draw eye areas
-    cv2.rectangle(img, (left_eye[0],left_eye[1]), (left_eye[0]+left_eye[2],left_eye[1]+left_eye[3]), (0,0,0), 2)
-    cv2.rectangle(img, (right_eye[0],right_eye[1]), (right_eye[0]+right_eye[2],right_eye[1]+right_eye[3]), (0,0,0), 2)
+    cv2.rectangle(img, (left_eye[0],left_eye[1]), (left_eye[0]+left_eye[2],
+		left_eye[1]+left_eye[3]), (0,0,0), 2)
+    cv2.rectangle(img, (right_eye[0],right_eye[1]), 
+		(right_eye[0]+right_eye[2],right_eye[1]+right_eye[3]), (0,0,0), 2)
     # draw nose position
     cv2.line(img, (0,nose_pos), (width,nose_pos), (0,0,0), 2)
     # draw mouth position
     cv2.line(img, (0,mouth_pos), (width,mouth_pos), (0,0,0), 2)
     # draw mouth area
-    cv2.rectangle(img, (mouth_area[0],mouth_area[1]), (mouth_area[0]+mouth_area[2],mouth_area[1]+mouth_area[3]), (0,0,0), 2)
+    cv2.rectangle(img, (mouth_area[0],mouth_area[1]), 
+		(mouth_area[0]+mouth_area[2],mouth_area[1]+mouth_area[3]), (0,0,0), 2)
     # display eyes
     #plt.subplot(121), plt.imshow(img, cmap='gray')
     #plt.title('Display Image')
