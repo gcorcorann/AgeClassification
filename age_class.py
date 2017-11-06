@@ -71,8 +71,8 @@ def find_zero_crossings(vector):
     pos = []
     # finite difference
     for i in range(len(vector)-1):
-        if ((vector[i] > 0 and vector[i+1] <0) or 
-            (vector[i] <0 and vector[i+1] >0)):
+        if ((vector[i] >= 0 and vector[i+1] <0) or 
+            (vector[i] <= 0 and vector[i+1] >0)):
             pos.append(i)
             val.append(abs(vector[i+1] - vector[i]))
     pos = np.array(pos)
@@ -81,13 +81,8 @@ def find_zero_crossings(vector):
     idx = np.argmax(val)
     mouth_pos = pos[idx]
     val[idx] = 0
-    while (True):
-        idx = np.argmax(val)
-        nose_pos = pos[idx]
-        if abs(nose_pos - mouth_pos) <= 20:
-            val[idx] = 0
-        else:
-            break
+    idx = np.argmax(val)
+    nose_pos = pos[idx]
     return mouth_pos, nose_pos	
 
 """ Horizontal Projection """
@@ -110,17 +105,16 @@ def horizontal_projection(img_bin, flag):
     elif flag==1:
         h_proj = np.array(h_proj)
         # smooth projection
-        avg_kernel = np.ones(5) / 5
         h_proj = convolve_1D(h_proj, np.ones(5)/5)
         # find derivative
         der = convolve_1D(h_proj, np.array([-1,-1,0,1,1]))
         mouth_pos, nose_pos = find_zero_crossings(der)
     return mouth_pos, nose_pos
 
-""" Locate Eyes """
-def locate_eyes(img, width, height, sobel_thres):
+""" Locate Eyes 2 """
+def locate_eyes2(img, width, height, sobel_thres):
     """
-    Find locations of both eyes and eye center line.
+    Find locations of both eyes and eye center line using Adaboost.
 
     @param  img:    input image
     @param  width:  width of input image
@@ -137,19 +131,76 @@ def locate_eyes(img, width, height, sobel_thres):
     I_edge = apply_sobel(roi, 3, sobel_thres)
     # find position of eyes
     eye_pos = horizontal_projection(I_edge, 0)
+    # find area of eyes using Adaboost
+    fp = "/home/gary/opencv/data/haarcascades/haarcascade_eye.xml"
+    eye_cascade = cv2.CascadeClassifier(fp)
+    eyes = eye_cascade.detectMultiScale(np.uint8(roi), scaleFactor=1.1,
+            minNeighbors=2)
+    best_left = np.inf
+    best_right = np.inf
+    
+    for (ex,ey,ew,eh) in eyes:
+        cx = ex + ew//2
+        cy = ey + eh//2
+        # find distance from eye position
+        d = abs(eye_pos - cy)
+        # left eye
+        if cx <= I_edge.shape[1]//2 and d < best_left:
+            left_eye = list([ex,ey,ew,eh])
+            best_left = d
+        elif cx > I_edge.shape[1]//2 and d < best_right:
+            right_eye = list([ex,ey,ew,eh])
+            best_right = d
+    # if we cannot find an eye, use older locate eyes method
+    if best_left is np.inf or best_right is np.inf: 
+        locs = locate_eyes(img, width, height, sobel_thres)
+        if best_left is np.inf:
+            left_eye = locs[1]
+        if best_right is np.inf:
+            right_eye = locs[2]
+    # relative positions
+    eye_pos += height//3
+    left_eye[0] += width//4
+    left_eye[1] += height//3
+    right_eye[0] += width//4
+    right_eye[1] += height//3
+    return eye_pos, left_eye, right_eye
+
+""" Locate Eyes """
+def locate_eyes(img, width, height, sobel_thres):
+    """
+    Find locations of both eyes and eye center line.
+
+    @param  img:    input image
+    @param  width:  width of input image
+    @param  height: height of input image
+    @param  sobel_thres:    threshold of Sobel operator for binary image
+
+    @return eye_pos:    position of eyes relative to original image
+    @return left_eye:   bounding box of left eye
+    @return right_eye:  bounding box of right eye
+    """
+    # eye RO
+    roi = img[height//3:3*height//5, width//4:3*width//4].copy()
+    # apply Sobel operator
+    I_edge = apply_sobel(roi, 3, sobel_thres)
+    # find position of eyes
+    eye_pos = horizontal_projection(I_edge, 0)
     # find area of eyes
     labels, stats = connected_components(np.uint8(I_edge))
     # threshold components
     best_left = np.inf
     best_right = np.inf
-    # find closest blobs to eye_pos that has an area >= 130
+    left_eye = list([0,0,0,0])
+    right_eye = list([0,0,0,0])
+    # find closest blobs to eye_pos that has an area >= thres
     for i in range(1, len(stats)):
         row = stats[i]
-        if row[4] >= 130:
+        if row[4] >= 20:
             c_x = row[0] + row[2]//2
             c_y = row[1] + row[3]//2
             # find distance from eye position
-            d = abs(eye_pos - (c_y+height//3))
+            d = abs(eye_pos - c_y)
             # left eye
             if c_x <= labels.shape[1]//2 and d < best_left:
                 left_eye = row[0:4]
@@ -159,11 +210,6 @@ def locate_eyes(img, width, height, sobel_thres):
                 right_eye = row[0:4]
                 best_right = d
     # offset compared to original image
-    eye_pos += height//3
-    left_eye[0] += width//4
-    left_eye[1] += height//3
-    right_eye[0] += width//4
-    right_eye[1] += height//3
     return eye_pos, left_eye, right_eye 
 
 """ Connected Components """
@@ -177,10 +223,11 @@ def connected_components(img_thres):
     @return stats:  statistics on each connected component
     """
     # morphological closing
-    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
-    img_close = cv2.morphologyEx(img_thres, cv2.MORPH_CLOSE, se)
+    #se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (1,1))
+    #img_open = cv2.morphologyEx(img_thres, cv2.MORPH_OPEN, se)
     # find connected components
-    _, labels, stats, _ = cv2.connectedComponentsWithStats(img_close, 8)
+    #_, labels, stats, _ = cv2.connectedComponentsWithStats(img_open, 8)
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(img_thres, 8)
     return labels, stats
 
 """ Locate Nose Mouth """
@@ -200,7 +247,7 @@ def locate_nose_mouth(img, left_eye, right_eye, sobel_thres):
     d_eyes = right_eye[0]+right_eye[2] - left_eye[0]
     # find nose+mouse region of interest
     tb = max(left_eye[1]+left_eye[3], right_eye[1]+right_eye[3])
-    bb = tb + (4 * d_eyes)//4
+    bb = tb + (3 * d_eyes)//4
     lb = left_eye[0] + left_eye[2]//4
     rb = right_eye[0] + 3*right_eye[2]//4
     # apply Sobel filters`
@@ -235,7 +282,7 @@ def location_phase(img, sobel_thres):
     # keep original image for displaying
     height, width = img.shape
     # find eyes
-    eye_pos, left_eye, right_eye = locate_eyes(img, width, height, sobel_thres)
+    eye_pos, left_eye, right_eye = locate_eyes2(img, width, height, sobel_thres)
     # find nose and mouth
     nose_pos, mouth_pos, mouth_area = locate_nose_mouth(img, left_eye, 
                                         right_eye, sobel_thres)
@@ -449,7 +496,7 @@ def main():
     #plt.title('Display Image')
     #plt.show()
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
     # execute only if run as a script
-    main()
+    #main()
 
